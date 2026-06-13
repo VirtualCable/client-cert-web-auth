@@ -1,0 +1,10 @@
+# Generated config (not the example)
+config/config.yaml
+
+# Generated certificates
+certs/*.pem
+
+# Python
+__pycache__/
+.venv/
+*.pyc
