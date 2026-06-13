@@ -1,4 +1,1 @@
 hmac_key: "change-me-to-a-random-hex-string"
-uds_callback_url: "https://uds.example.com/uds/page/auth/callback/smartcard/"
-listen_host: "127.0.0.1"
-listen_port: 8080

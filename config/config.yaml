@@ -1,4 +1,0 @@
-hmac_key: fc1a2f77eb7d07915af4295b064ce49ea99c3ecbe10326a284416b2adcc5d80e
-uds_callback_url: https://uds.example.com/uds/page/auth/callback/smartcard/
-listen_host: 127.0.0.1
-listen_port: 8080

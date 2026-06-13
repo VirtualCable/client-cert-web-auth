@@ -1,13 +1,44 @@
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2025-2026 Virtual Cable S.L.U.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification,
+# are permitted provided that the following conditions are met:
+#
+#    * Redistributions of source code must retain the above copyright notice,
+#      this list of conditions and the following disclaimer.
+#    * Redistributions in binary form must reproduce the above copyright notice,
+#      this list of conditions and the following disclaimer in the documentation
+#      and/or other materials provided with the distribution.
+#    * Neither the name of Virtual Cable S.L.U. nor the names of its contributors
+#      may be used to endorse or promote products derived from this software
+#      without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 from __future__ import annotations
 
 import base64
 import html
+import json
+import logging
 
-from aiohttp import web
 from aiohttp.web import Request, Response
 
 from app.config import AppConfig
-from app.crypto_utils import encrypt_payload, hmac_verify
+from app.crypto_utils import encrypt_payload, hmac_sign, hmac_verify
+
+logger = logging.getLogger(__name__)
 
 EMPTY_CERT_SENTINEL = "EMPTY"
 
@@ -35,15 +66,25 @@ async def handle_cert_auth(request: Request) -> Response:
 
     cert_pem = request.headers.get("X-Client-Cert", "")
     host = request.headers.get("Host", "")
+    remote = request.remote
+
+    if cert_pem:
+        logger.info("Client certificate received from %s", remote)
+    else:
+        logger.info("No client certificate from %s", remote)
 
     if not cert_pem:
         cert_pem = EMPTY_CERT_SENTINEL
 
     encrypted_payload = encrypt_payload(cert_pem, config.hmac_key)
-    return_url = _extract_return_url(request, config)
+    urls = _extract_urls(request, config)
+    callback_url = urls["callback_url"]
+    return_url = urls["return_url"]
+
+    logger.info("Redirecting to UDS callback: %s", callback_url or "(none)")
 
     body = AUTO_SUBMIT_TEMPLATE.format(
-        callback_url=html.escape(config.uds_callback_url),
+        callback_url=html.escape(callback_url),
         payload=html.escape(encrypted_payload),
         host=html.escape(host),
         return_url=html.escape(return_url or ""),
@@ -52,32 +93,20 @@ async def handle_cert_auth(request: Request) -> Response:
     return Response(text=body, content_type="text/html")
 
 
-def _extract_return_url(request: Request, config: AppConfig) -> str | None:
+def _extract_urls(request: Request, config: AppConfig) -> dict[str, str]:
     path_param = request.match_info.get("path_param", None)
     if path_param:
-        url = _decode_return_url(path_param, config)
-        if url:
-            return url
+        result = _decode_path_payload(path_param, config)
+        if result:
+            return result
+        logger.warning("Path payload HMAC verification failed")
 
-    return_url_b64 = request.query.get("return_url")
-    sig = request.query.get("sig")
-
-    if return_url_b64 and sig and hmac_verify(return_url_b64, sig, config.hmac_key):
-        try:
-            return base64.urlsafe_b64decode(return_url_b64).decode()
-        except Exception:
-            return None
-
-    return None
+    return {"callback_url": "", "return_url": ""}
 
 
-def _decode_return_url(encoded: str, config: AppConfig) -> str | None:
+def _decode_path_payload(encoded: str, config: AppConfig) -> dict[str, str] | None:
     try:
-        parts = encoded.rsplit(".", 1)
-        if len(parts) != 2:
-            return None
-
-        data_b64, sig = parts
+        data_b64, sig = encoded.rsplit(".", 1)
         if not hmac_verify(data_b64, sig, config.hmac_key):
             return None
 
@@ -85,6 +114,19 @@ def _decode_return_url(encoded: str, config: AppConfig) -> str | None:
         if padding != 4:
             data_b64 += "=" * padding
 
-        return base64.urlsafe_b64decode(data_b64).decode()
+        raw = base64.urlsafe_b64decode(data_b64)
+        data = json.loads(raw)
+
+        return {
+            "callback_url": data.get("c", ""),
+            "return_url": data.get("r", ""),
+        }
     except Exception:
         return None
+
+
+def encode_path_payload(callback_url: str, return_url: str, hmac_key: str) -> str:
+    data = json.dumps({"c": callback_url, "r": return_url})
+    data_b64 = base64.urlsafe_b64encode(data.encode()).decode().rstrip("=")
+    sig = hmac_sign(data_b64, hmac_key)
+    return f"{data_b64}.{sig}"

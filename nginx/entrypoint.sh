@@ -4,7 +4,7 @@ set -e
 CERT_DIR="/etc/certs"
 CERT_FILE="${CERT_DIR}/server.pem"
 KEY_FILE="${CERT_DIR}/key.pem"
-DHPARAM_FILE="${CERT_DIR}/dhparam.pem"
+DH_RUNTIME="/run/dhparam.pem"
 
 SMARTCARD_AUTH_PID=""
 NGINX_PID=""
@@ -23,10 +23,17 @@ if [ ! -f "${CERT_FILE}" ] || [ ! -f "${KEY_FILE}" ]; then
 fi
 
 # --- Generate dhparam if not exists ---
-if [ ! -f "${DHPARAM_FILE}" ]; then
-    echo "[entrypoint] No DH parameters found at ${DHPARAM_FILE}. Generating (2048 bits)..."
-    openssl dhparam -out "${DHPARAM_FILE}" 2048 2>/dev/null
-    echo "[entrypoint] DH parameters generated."
+if [ -f "${CERT_DIR}/dhparam.pem" ]; then
+    echo "[entrypoint] Using mounted DH parameters from ${CERT_DIR}/dhparam.pem"
+    ln -sf "${CERT_DIR}/dhparam.pem" "${DH_RUNTIME}"
+elif [ -w "${CERT_DIR}" ]; then
+    echo "[entrypoint] No DH parameters found. Generating (2048 bits)..."
+    openssl dhparam -out "${DH_RUNTIME}" 2048 2>/dev/null
+    echo "[entrypoint] DH parameters generated at ${DH_RUNTIME}"
+else
+    echo "[entrypoint] No DH parameters found. Generating (2048 bits)..."
+    openssl dhparam -out "${DH_RUNTIME}" 2048 2>/dev/null
+    echo "[entrypoint] DH parameters generated at ${DH_RUNTIME}"
 fi
 
 # --- Configure Nginx SSL Snippet ---
@@ -50,6 +57,11 @@ cleanup() {
     exit 0
 }
 trap cleanup SIGTERM SIGINT SIGQUIT
+
+# --- Set Network Environment Variables ---
+# These override values in config.yaml to ensure consistency with nginx proxy_pass
+export SMARTCARD_AUTH_LISTEN_HOST="${SMARTCARD_AUTH_LISTEN_HOST:-127.0.0.1}"
+export SMARTCARD_AUTH_LISTEN_PORT="${SMARTCARD_AUTH_LISTEN_PORT:-8080}"
 
 # --- Start smartcard-auth app ---
 echo "[entrypoint] Starting smartcard-auth app..."
