@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE="smartcard-auth"
+IMAGE="client-cert-auth"
 
 echo "Building ${IMAGE}..."
 docker build -t "${IMAGE}" .
@@ -9,7 +9,7 @@ docker build -t "${IMAGE}" .
 echo ""
 echo "Done. Run with:"
 echo ""
-echo "  docker run -d --name smartcard-auth -p 443:443 \\"
+echo "  docker run -d --name client-cert-auth -p 443:443 \\"
 echo "    --log-opt max-size=10m --log-opt max-file=3 \\"
 echo "    -v \$(pwd)/config/config.yaml:/app/config/config.yaml:ro \\"
 echo "    -v \$(pwd)/certs:/etc/certs:ro \\"

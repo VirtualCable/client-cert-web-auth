@@ -6,7 +6,7 @@ CERT_FILE="${CERT_DIR}/server.pem"
 KEY_FILE="${CERT_DIR}/key.pem"
 DH_RUNTIME="/run/dhparam.pem"
 
-SMARTCARD_AUTH_PID=""
+CLIENT_CERT_AUTH_PID=""
 NGINX_PID=""
 
 # --- Generate self-signed certificates if not mounted ---
@@ -50,9 +50,9 @@ fi
 # --- Handle graceful shutdown ---
 cleanup() {
     echo "[entrypoint] Shutting down..."
-    [ -n "${SMARTCARD_AUTH_PID}" ] && kill -TERM ${SMARTCARD_AUTH_PID} 2>/dev/null || true
+    [ -n "${CLIENT_CERT_AUTH_PID}" ] && kill -TERM ${CLIENT_CERT_AUTH_PID} 2>/dev/null || true
     nginx -s quit 2>/dev/null || true
-    [ -n "${SMARTCARD_AUTH_PID}" ] && wait ${SMARTCARD_AUTH_PID} 2>/dev/null || true
+    [ -n "${CLIENT_CERT_AUTH_PID}" ] && wait ${CLIENT_CERT_AUTH_PID} 2>/dev/null || true
     echo "[entrypoint] Shutdown complete."
     exit 0
 }
@@ -60,14 +60,14 @@ trap cleanup SIGTERM SIGINT SIGQUIT
 
 # --- Set Network Environment Variables ---
 # These override values in config.yaml to ensure consistency with nginx proxy_pass
-export SMARTCARD_AUTH_LISTEN_HOST="${SMARTCARD_AUTH_LISTEN_HOST:-127.0.0.1}"
-export SMARTCARD_AUTH_LISTEN_PORT="${SMARTCARD_AUTH_LISTEN_PORT:-8080}"
+export CLIENT_CERT_AUTH_LISTEN_HOST="${CLIENT_CERT_AUTH_LISTEN_HOST:-127.0.0.1}"
+export CLIENT_CERT_AUTH_LISTEN_PORT="${CLIENT_CERT_AUTH_LISTEN_PORT:-8080}"
 
-# --- Start smartcard-auth app ---
-echo "[entrypoint] Starting smartcard-auth app..."
+# --- Start client-cert-auth app ---
+echo "[entrypoint] Starting client-cert-auth app..."
 uv run python -m app.main &
-SMARTCARD_AUTH_PID=$!
-echo "[entrypoint] Smartcard-auth app started (PID: ${SMARTCARD_AUTH_PID})"
+CLIENT_CERT_AUTH_PID=$!
+echo "[entrypoint] Client-cert-auth app started (PID: ${CLIENT_CERT_AUTH_PID})"
 
 # --- Start nginx in foreground ---
 echo "[entrypoint] Starting nginx..."
@@ -76,9 +76,9 @@ NGINX_PID=$!
 
 # --- Monitor processes ---
 while true; do
-    if [ -n "${SMARTCARD_AUTH_PID}" ]; then
-        if ! kill -0 ${SMARTCARD_AUTH_PID} 2>/dev/null; then
-            echo "[entrypoint] Smartcard-auth app exited unexpectedly."
+    if [ -n "${CLIENT_CERT_AUTH_PID}" ]; then
+        if ! kill -0 ${CLIENT_CERT_AUTH_PID} 2>/dev/null; then
+            echo "[entrypoint] Client-cert-auth app exited unexpectedly."
             cleanup
         fi
     fi

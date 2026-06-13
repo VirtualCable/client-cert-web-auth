@@ -47,14 +47,12 @@ AUTO_SUBMIT_TEMPLATE = """\
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Smartcard Authentication</title>
+    <title>Client Certificate Authentication</title>
 </head>
 <body>
     <p>Redirecting...</p>
-    <form id="f" method="POST" action="{callback_url}">
+    <form id="f" method="POST" action="{target_url}">
         <input type="hidden" name="payload" value="{payload}">
-        <input type="hidden" name="host" value="{host}">
-        <input type="hidden" name="return_url" value="{return_url}">
     </form>
     <script>document.getElementById('f').submit();</script>
 </body>
@@ -66,7 +64,8 @@ async def handle_cert_auth(request: Request) -> Response:
 
     cert_pem = request.headers.get("X-Client-Cert", "")
     host = request.headers.get("Host", "")
-    remote = request.remote
+    remote = request.remote or ""
+    forwarded = request.headers.get("X-Forwarded-For", "")
 
     if cert_pem:
         logger.info("Client certificate received from %s", remote)
@@ -76,35 +75,38 @@ async def handle_cert_auth(request: Request) -> Response:
     if not cert_pem:
         cert_pem = EMPTY_CERT_SENTINEL
 
-    encrypted_payload = encrypt_payload(cert_pem, config.hmac_key)
-    urls = _extract_urls(request, config)
-    callback_url = urls["callback_url"]
-    return_url = urls["return_url"]
+    data = json.dumps({
+        "cert": cert_pem,
+        "host": host,
+        "remote_ip": remote,
+        "forwarded_for": forwarded,
+    })
 
-    logger.info("Redirecting to UDS callback: %s", callback_url or "(none)")
+    encrypted_payload = encrypt_payload(data, config.hmac_key)
+    target_url = _extract_target_url(request, config)
+
+    logger.info("Redirecting to UDS: %s", target_url or "(none)")
 
     body = AUTO_SUBMIT_TEMPLATE.format(
-        callback_url=html.escape(callback_url),
+        target_url=html.escape(target_url),
         payload=html.escape(encrypted_payload),
-        host=html.escape(host),
-        return_url=html.escape(return_url or ""),
     )
 
     return Response(text=body, content_type="text/html")
 
 
-def _extract_urls(request: Request, config: AppConfig) -> dict[str, str]:
+def _extract_target_url(request: Request, config: AppConfig) -> str:
     path_param = request.match_info.get("path_param", None)
     if path_param:
-        result = _decode_path_payload(path_param, config)
-        if result:
-            return result
+        url = _decode_signed_url(path_param, config)
+        if url:
+            return url
         logger.warning("Path payload HMAC verification failed")
 
-    return {"callback_url": "", "return_url": ""}
+    return ""
 
 
-def _decode_path_payload(encoded: str, config: AppConfig) -> dict[str, str] | None:
+def _decode_signed_url(encoded: str, config: AppConfig) -> str | None:
     try:
         data_b64, sig = encoded.rsplit(".", 1)
         if not hmac_verify(data_b64, sig, config.hmac_key):
@@ -114,19 +116,16 @@ def _decode_path_payload(encoded: str, config: AppConfig) -> dict[str, str] | No
         if padding != 4:
             data_b64 += "=" * padding
 
-        raw = base64.urlsafe_b64decode(data_b64)
-        data = json.loads(raw)
-
-        return {
-            "callback_url": data.get("c", ""),
-            "return_url": data.get("r", ""),
-        }
+        return base64.urlsafe_b64decode(data_b64).decode()
     except Exception:
         return None
 
 
-def encode_path_payload(callback_url: str, return_url: str, hmac_key: str) -> str:
-    data = json.dumps({"c": callback_url, "r": return_url})
-    data_b64 = base64.urlsafe_b64encode(data.encode()).decode().rstrip("=")
+def encode_target_url(url: str, hmac_key: str) -> str:
+    data_b64 = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
     sig = hmac_sign(data_b64, hmac_key)
     return f"{data_b64}.{sig}"
+
+
+async def handle_catch_all(request: Request) -> Response:
+    return Response(text="", content_type="text/plain")

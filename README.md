@@ -1,4 +1,4 @@
-# UDS Smartcard Auth — Client Certificate Bridge
+# UDS Client Certificate Auth — TLS Certificate Bridge
 
 Lightweight Docker service that acts as a bridge between a TLS client-certificate
 protected endpoint and the UDS authentication system.
@@ -18,8 +18,8 @@ Browser ──TLS + client cert──▶ nginx (:443) ──proxy_pass──▶ 
                                                        UDS auth_callback
 ```
 
-1. UDS generates a signed link pointing to this service with the callback and
-   return URLs embedded in the path.
+1. UDS generates a signed link pointing to this service with the callback URL
+   embedded in the path.
 2. The browser performs a TLS handshake with its client certificate.
 3. Nginx extracts the certificate and forwards it via headers to the Python app.
 4. The app encrypts the certificate (AES-256-CBC + HMAC-SHA256) and returns an
@@ -40,7 +40,55 @@ Generate one with:
 docker run --rm \
   -v $(pwd)/config:/app/config \
   --entrypoint /usr/local/bin/uv \
-  smartcard-auth run python scripts/generate_config.py
+  client-cert-auth run python scripts/generate_config.py
+```
+
+## Endpoint
+
+| Path | Description |
+|------|-------------|
+| `GET /cert_auth/<signed_url>` | Receives the client certificate, encrypts it, returns an auto-submitting form that POSTs to the UDS callback URL embedded in the path. |
+| Other paths | Empty 200 response (no information disclosed). |
+
+The `<signed_url>` component encodes the UDS callback URL, signed with HMAC-SHA256:
+
+```
+signed_url = base64url(callback_url) . hmac_hex(shared_key, base64url(callback_url))
+```
+
+### Data sent to UDS
+
+The auto-submitting form POSTs a single field:
+
+| Field | Content |
+|-------|---------|
+| `payload` | AES-256-CBC encrypted + HMAC-SHA256 authenticated JSON, base64-encoded. Contains: `cert`, `host`, `remote_ip`, `forwarded_for`. |
+
+The encrypted payload decodes to:
+
+```json
+{
+    "cert": "<client certificate PEM or \"EMPTY\">",
+    "host": "client-cert.example.com",
+    "remote_ip": "192.168.1.100",
+    "forwarded_for": "10.0.0.1, 172.16.0.2"
+}
+```
+
+Example of the HTML form returned by the service:
+
+```html
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Client Certificate Authentication</title></head>
+<body>
+    <p>Redirecting...</p>
+    <form method="POST" action="https://uds.example.com/uds/page/auth/callback/client_cert/">
+        <input type="hidden" name="payload" value="AaDB3kVfn38...">
+    </form>
+    <script>document.getElementById('f').submit();</script>
+</body>
+</html>
 ```
 
 ## Build
@@ -52,11 +100,11 @@ docker run --rm \
 ## Run
 
 ```bash
-docker run -d --name smartcard-auth -p 443:443 \
+docker run -d --name client-cert-auth -p 443:443 \
   --log-opt max-size=10m --log-opt max-file=3 \
   -v $(pwd)/config/config.yaml:/app/config/config.yaml:ro \
   -v $(pwd)/certs:/etc/certs:ro \
-  smartcard-auth
+  client-cert-auth
 ```
 
 ## Optional mounts
@@ -74,14 +122,14 @@ All of these are auto-generated on startup if not provided:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SMARTCARD_AUTH_LISTEN_HOST` | `127.0.0.1` | Internal listen address for the Python app |
-| `SMARTCARD_AUTH_LISTEN_PORT` | `8080` | Internal listen port |
-| `SMARTCARD_AUTH_CONFIG` | `config/config.yaml` | Path to configuration file |
+| `CLIENT_CERT_AUTH_LISTEN_HOST` | `127.0.0.1` | Internal listen address for the Python app |
+| `CLIENT_CERT_AUTH_LISTEN_PORT` | `8080` | Internal listen port |
+| `CLIENT_CERT_AUTH_CONFIG` | `config/config.yaml` | Path to configuration file |
 
 ## Viewing logs
 
 ```bash
-docker logs -f smartcard-auth
+docker logs -f client-cert-auth
 ```
 
 ## License

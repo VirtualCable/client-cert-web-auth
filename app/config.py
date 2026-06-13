@@ -43,11 +43,11 @@ class AppConfig:
 
 def load_config(path: str | None = None) -> AppConfig:
     if path is None:
-        path = os.environ.get("SMARTCARD_AUTH_CONFIG", "config/config.yaml")
+        path = os.environ.get("CLIENT_CERT_AUTH_CONFIG", "config/config.yaml")
     with open(path) as f:
         data = yaml.safe_load(f)
     return AppConfig(
         hmac_key=data["hmac_key"],
-        listen_host=os.environ.get("SMARTCARD_AUTH_LISTEN_HOST", "127.0.0.1"),
-        listen_port=int(os.environ.get("SMARTCARD_AUTH_LISTEN_PORT", "8080")),
+        listen_host=os.environ.get("CLIENT_CERT_AUTH_LISTEN_HOST", "127.0.0.1"),
+        listen_port=int(os.environ.get("CLIENT_CERT_AUTH_LISTEN_PORT", "8080")),
     )

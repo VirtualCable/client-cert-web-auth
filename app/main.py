@@ -34,7 +34,7 @@ import logging
 from aiohttp import web
 
 from app.config import AppConfig, load_config
-from app.handler import handle_cert_auth
+from app.handler import handle_catch_all, handle_cert_auth
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ def create_app(config: AppConfig) -> web.Application:
     app = web.Application()
     app["config"] = config
 
-    app.router.add_get("/cert_auth/", handle_cert_auth)
     app.router.add_get("/cert_auth/{path_param:.+}", handle_cert_auth)
+    app.router.add_get("/{tail:.*}", handle_catch_all)
 
     return app
 
