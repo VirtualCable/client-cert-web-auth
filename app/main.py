@@ -6,7 +6,7 @@ import logging
 from aiohttp import web
 
 from app.config import AppConfig, load_config
-from app.handler import handle_cert_auth, handle_health
+from app.handler import handle_cert_auth
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,6 @@ def create_app(config: AppConfig) -> web.Application:
 
     app.router.add_get("/cert_auth/", handle_cert_auth)
     app.router.add_get("/cert_auth/{path_param:.+}", handle_cert_auth)
-    app.router.add_get("/health", handle_health)
 
     return app
 

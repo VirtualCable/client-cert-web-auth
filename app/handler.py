@@ -88,7 +88,3 @@ def _decode_return_url(encoded: str, config: AppConfig) -> str | None:
         return base64.urlsafe_b64decode(data_b64).decode()
     except Exception:
         return None
-
-
-async def handle_health(request: Request) -> Response:
-    return Response(text="OK")
