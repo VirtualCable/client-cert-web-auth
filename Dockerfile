@@ -1,7 +1,7 @@
 ARG DISTRO_VERSION=bookworm
 FROM debian:${DISTRO_VERSION}-slim
 
-LABEL maintainer="Virtual Cable S.L. <dkmaster@dkmon.com>"
+LABEL maintainer="Virtual Cable S.L. <support@virtualcable.net>"
 LABEL description="UDS Client Certificate Auth — TLS Certificate Bridge"
 
 ENV DEBIAN_FRONTEND=noninteractive
