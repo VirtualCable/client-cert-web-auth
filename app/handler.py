@@ -75,17 +75,19 @@ async def handle_cert_auth(request: Request) -> Response:
     if not cert_pem:
         cert_pem = EMPTY_CERT_SENTINEL
 
+    target_url, ticket_id = _extract_signed_data(request, config)
+
     data = json.dumps({
         "cert": cert_pem,
         "host": host,
         "remote_ip": remote,
         "forwarded_for": forwarded,
+        "ticket": ticket_id,
     })
 
     encrypted_payload = encrypt_payload(data, config.hmac_key)
-    target_url = _extract_target_url(request, config)
 
-    logger.info("Redirecting to UDS: %s", target_url or "(none)")
+    logger.info("Redirecting to UDS: %s (ticket: %s)", target_url or "(none)", ticket_id or "(none)")
 
     body = AUTO_SUBMIT_TEMPLATE.format(
         target_url=html.escape(target_url),
@@ -95,18 +97,20 @@ async def handle_cert_auth(request: Request) -> Response:
     return Response(text=body, content_type="text/html")
 
 
-def _extract_target_url(request: Request, config: AppConfig) -> str:
+def _extract_signed_data(request: Request, config: AppConfig) -> tuple[str, str]:
+    """Extract (url, ticket_id) from the signed path param."""
     path_param = request.match_info.get("path_param", None)
     if path_param:
-        url = _decode_signed_url(path_param, config)
-        if url:
-            return url
+        result = _decode_signed_data(path_param, config)
+        if result:
+            return result.get("url", ""), result.get("ticket", "")
         logger.warning("Path payload HMAC verification failed")
 
-    return ""
+    return "", ""
 
 
-def _decode_signed_url(encoded: str, config: AppConfig) -> str | None:
+def _decode_signed_data(encoded: str, config: AppConfig) -> dict[str, str] | None:
+    """Decode base64url(json).hmac_hex back to dict with 'url' and optionally 'ticket'."""
     try:
         data_b64, sig = encoded.rsplit(".", 1)
         if not hmac_verify(data_b64, sig, config.hmac_key):
@@ -116,13 +120,16 @@ def _decode_signed_url(encoded: str, config: AppConfig) -> str | None:
         if padding != 4:
             data_b64 += "=" * padding
 
-        return base64.urlsafe_b64decode(data_b64).decode()
+        decoded = base64.urlsafe_b64decode(data_b64).decode()
+        return json.loads(decoded)
     except Exception:
         return None
 
 
-def encode_target_url(url: str, hmac_key: str) -> str:
-    data_b64 = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+def encode_signed_data(url: str, ticket_id: str, hmac_key: str) -> str:
+    """Encode JSON {url, ticket} as base64url(json).hmac_hex."""
+    payload = json.dumps({"url": url, "ticket": ticket_id}, separators=(",", ":"))
+    data_b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     sig = hmac_sign(data_b64, hmac_key)
     return f"{data_b64}.{sig}"
 

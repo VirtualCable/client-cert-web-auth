@@ -37,15 +37,22 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 
 
-def _derive_keys(shared_secret: str) -> tuple[bytes, bytes]:
+def _derive_keys(shared_secret: str) -> tuple[bytes, bytes, bytes]:
+    """Derive encryption, MAC, and signing keys from the shared secret.
+
+    Returns (enc_key, mac_key, sign_key) — three separate derived keys
+    so that a compromise of one usage (signing vs. encryption) does not
+    affect the others (key separation).
+    """
     secret = shared_secret.encode()
     enc_key = hashlib.sha256(secret + b"enc").digest()
     mac_key = hashlib.sha256(secret + b"mac").digest()
-    return enc_key, mac_key
+    sign_key = hashlib.sha256(secret + b"sign").digest()
+    return enc_key, mac_key, sign_key
 
 
 def encrypt_payload(plaintext: str, shared_secret: str) -> str:
-    enc_key, mac_key = _derive_keys(shared_secret)
+    enc_key, mac_key, _ = _derive_keys(shared_secret)
     iv = os.urandom(16)
 
     padder = padding.PKCS7(128).padder()
@@ -62,7 +69,7 @@ def encrypt_payload(plaintext: str, shared_secret: str) -> str:
 
 
 def decrypt_payload(payload_b64: str, shared_secret: str) -> str:
-    enc_key, mac_key = _derive_keys(shared_secret)
+    enc_key, mac_key, _ = _derive_keys(shared_secret)
 
     raw = base64.b64decode(payload_b64)
     iv = raw[:16]
@@ -84,8 +91,8 @@ def decrypt_payload(payload_b64: str, shared_secret: str) -> str:
 
 
 def hmac_sign(data: str, shared_secret: str) -> str:
-    mac_key = _derive_keys(shared_secret)[1]
-    h = hmac_module.new(mac_key, data.encode(), hashlib.sha256)
+    _, _, sign_key = _derive_keys(shared_secret)
+    h = hmac_module.new(sign_key, data.encode(), hashlib.sha256)
     return h.hexdigest()
 
 

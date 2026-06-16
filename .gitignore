@@ -4,6 +4,9 @@ config/config.yaml
 # Generated certificates
 certs/*.pem
 
+# Lock file (application — pinned deps not needed in VCS)
+uv.lock
+
 # Python
 __pycache__/
 .venv/
