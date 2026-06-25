@@ -28,6 +28,7 @@ COPY pyproject.toml ./
 RUN /usr/local/bin/uv sync
 
 COPY app/ ./app/
+RUN find ./app -type d -name "__pycache__" -exec rm -rf {} + || true
 COPY scripts/ ./scripts/
 COPY config/ ./config/
 
